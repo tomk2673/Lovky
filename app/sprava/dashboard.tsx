@@ -1,0 +1,66 @@
+"use client";
+import {useEffect,useRef,useState} from "react";
+import {api} from "../../lib/client-api";
+import {ArrowLeft,ArrowUpRight,Check,ChevronLeft,ChevronRight,Copy,Download,Inbox,RefreshCw,Search,X} from "lucide-react";
+import {formatMoney,parseCents,statuses,statusLabels,type Lead} from "../../lib/lead-validation";
+type Event={id:string;created_at:number;action:string;detail:string};
+type Listing={items:Lead[];total:number;totals:{total:number;fresh:number;handed:number;expected:number;paid:number};page:number};
+const date=(n:number)=>new Date(n).toLocaleString("cs-CZ",{dateStyle:"short",timeStyle:"short"});
+export default function Dashboard({pilot,missing,partner}:{pilot:boolean;missing:string[];partner:string}){
+ const [listing,setListing]=useState<Listing|null>(null),[status,setStatus]=useState(""),[search,setSearch]=useState(""),[term,setTerm]=useState(""),[page,setPage]=useState(0),[revision,setRevision]=useState(0),[selected,setSelected]=useState<string|null>(null),[error,setError]=useState(""),[loading,setLoading]=useState(true);
+ useEffect(()=>{const id=setTimeout(()=>{setTerm(search);setPage(0);},250);return()=>clearTimeout(id);},[search]);
+ useEffect(()=>{
+  const controller=new AbortController();setLoading(true);setError("");
+  const q=new URLSearchParams({status,q:term,page:String(page)});
+  api<Listing>("/api/admin/leads?"+q,{signal:controller.signal,cache:"no-store"}).then(j=>{setListing(j);setLoading(false);}).catch(e=>{if(e.name!=="AbortError"){setError(e.message||"Načtení se nepodařilo.");setLoading(false);}});
+  return()=>controller.abort();
+ },[status,term,page,revision]);
+ const exportQuery=new URLSearchParams({format:"csv",status,q:term});
+ function refresh(){setRevision(v=>v+1);}
+ return <div className="dashboard">
+  <header className="admin-header"><div className="container nav-inner"><a className="brand" href="/">LOVKY<span>↗</span></a><div className="admin-header-right"><span className="owner-pill"><span className="status-dot"/> Soukromá správa</span><a href="/" className="text-button">Otevřít web <ArrowUpRight size={16}/></a></div></div></header>
+  <main className="container admin-main"><div className="admin-title"><div><p className="eyebrow dark-eyebrow">VAŠE OBCHODNÍ PŘÍLEŽITOSTI</p><h1>Poptávky pod kontrolou.</h1><p>{partner?"Příjemce poptávek: "+partner:"Od první poptávky po zaplacenou provizi."}</p></div><a href="/#poptavka" className="button button-gold">Vyzkoušet formulář <ArrowUpRight size={17}/></a></div>
+   {pilot&&<div className="pilot-notice"><span className="pilot-label">PILOT</span><div><b>Všechny kontakty jsou modelové.</b><p>Pro ostrý provoz zbývá doplnit provozovatele, financujícího partnera a dobu uchování. Testovací provize se do výdělků nezapočítávají.</p></div></div>}
+   <section className="stats-grid" aria-label="Přehled poptávek a provizí">{[["Poptávky celkem",listing?.totals.total||0],["Čekají na kontakt",listing?.totals.fresh||0],["Předané partnerovi",listing?.totals.handed||0],["Přijaté provize",formatMoney((listing?.totals.paid||0)/100)]].map(([label,value])=><div className="stat-card" key={label}><span>{label}</span><strong>{listing?value:"—"}</strong></div>)}</section>
+   <section className="lead-board"><div className="board-toolbar"><div className="search-box"><Search size={18}/><input aria-label="Hledat firmu, IČO, jméno nebo telefon" placeholder="Firma, IČO, jméno nebo telefon" value={search} onChange={e=>setSearch(e.target.value)}/></div><div className="toolbar-buttons"><button onClick={refresh} className="icon-button" aria-label="Obnovit přehled" disabled={loading}><RefreshCw size={17} className={loading?"spinning":""}/></button><a className="button button-outline button-small" href={"/api/admin/leads?"+exportQuery}><Download size={16}/> Export CSV</a></div></div>
+    <div className="status-tabs" aria-label="Filtrovat podle stavu">{[["","Všechny"],...statuses.map(s=>[s,statusLabels[s]])].map(([s,label])=><button className={status===s?"active":""} key={s} onClick={()=>{setStatus(s);setPage(0);}}>{label}</button>)}</div>
+    {error&&<div className="error-box" role="alert">{error} <button onClick={refresh}>Zkusit znovu</button></div>}
+    {loading&&!listing?<div className="empty-state"><RefreshCw className="spinning" size={24}/><h3>Načítám poptávky…</h3></div>:listing?.items.length?<><div className="lead-list-heading"><span>Firma / kontakt</span><span>Poptávka</span><span>Stav</span><span>Přijato</span><span/></div><div className="lead-list" aria-busy={loading}>{listing.items.map(l=><button key={l.id} className="lead-list-row" onClick={()=>setSelected(l.id)}><div><strong>{l.data.company}</strong><small>{l.data.name} · {l.data.phone}</small>{!!l.is_test&&<span className="test-badge">TEST</span>}</div><div><strong>{formatMoney(l.data.amount)}</strong><small>{l.data.purpose}</small></div><div><span className={"state-pill state-"+l.status}>{statusLabels[l.status]||l.status}</span></div><div className="lead-date">{date(l.created_at)}</div><ArrowUpRight size={17}/></button>)}</div><div className="list-footer"><span>{page*50+1}–{page*50+listing.items.length} z {listing.total}</span><div><button className="icon-button" aria-label="Předchozí stránka" disabled={!page||loading} onClick={()=>setPage(v=>v-1)}><ChevronLeft size={17}/></button><button className="icon-button" aria-label="Další stránka" disabled={(page+1)*50>=listing.total||loading} onClick={()=>setPage(v=>v+1)}><ChevronRight size={17}/></button></div></div></>:<div className="empty-state"><span className="empty-icon"><Inbox size={29}/></span><h3>{term||status?"Tady zatím nic není.":"První poptávka začne tady."}</h3><p>{term||status?"Zkuste jiný filtr nebo hledaný výraz.":"Vyplňte modelový formulář a uvidíte celý průchod v praxi."}</p><a className="button button-small" href="/#poptavka">Otevřít formulář <ArrowUpRight size={16}/></a></div>}
+   </section>
+   <div className="admin-bottom"><p><Check size={14}/> Uložené poptávky · historie změn · přehled provizí</p><p>Export obsahuje nejvýše 1 000 poptávek podle aktuálního filtru.</p></div>
+   {pilot&&<details className="setup-details"><summary>Co zbývá pro ostré spuštění</summary><p>Identita provozovatele a investora, jejich kontakty, doba uchování a potvrzené obchodní podmínky předávání. Chybějící údaje:</p><code>{missing.filter(k=>k!=="RATE_LIMIT_SECRET").map(k=>({OPERATOR_NAME:"Název provozovatele",OPERATOR_ICO:"IČO provozovatele",OPERATOR_ADDRESS:"Sídlo provozovatele",PRIVACY_EMAIL:"Kontaktní e-mail",PARTNER_NAME:"Název investora",PARTNER_ICO:"IČO investora",PARTNER_ADDRESS:"Sídlo investora",RETENTION_DAYS:"Doba uchování"} as Record<string,string>)[k]||k).join(" · ")||"Nastavení vyplněno; zůstává pilotní režim."}</code></details>}
+  </main>
+  {selected&&<LeadDetail key={selected} id={selected} close={()=>setSelected(null)} saved={refresh}/>}
+ </div>;
+}
+function LeadDetail({id,close,saved}:{id:string;close:()=>void;saved:()=>void}){
+ const dialog=useRef<HTMLDialogElement>(null);
+ const [lead,setLead]=useState<Lead|null>(null),[events,setEvents]=useState<Event[]>([]),[status,setStatus]=useState("new"),[note,setNote]=useState(""),[expected,setExpected]=useState("0"),[paid,setPaid]=useState("0"),[error,setError]=useState(""),[busy,setBusy]=useState(false),[message,setMessage]=useState(""),[deleting,setDeleting]=useState(false);
+ useEffect(()=>{dialog.current?.showModal();const old=document.body.style.overflow;document.body.style.overflow="hidden";return()=>{document.body.style.overflow=old;};},[]);
+ useEffect(()=>{const c=new AbortController();api<{lead:Lead;events:Event[]}>("/api/admin/leads/"+encodeURIComponent(id),{signal:c.signal,cache:"no-store"}).then(j=>{setLead(j.lead);setEvents(j.events);setStatus(j.lead.status);setNote(j.lead.note);setExpected(String(j.lead.expected_cents/100).replace(".",","));setPaid(String(j.lead.paid_cents/100).replace(".",","));}).catch(e=>{if(e.name!=="AbortError")setError(e.message);});return()=>c.abort();},[id]);
+ async function save(){
+  if(!lead)return;const e=parseCents(expected),p=parseCents(paid);if(e===null||p===null){setError("Provizi zadejte v Kč, nejvýše na dvě desetinná místa.");return;}
+  setBusy(true);setError("");setMessage("");
+  try{const r=await fetch("/api/admin/leads/"+encodeURIComponent(id),{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({version:lead.version,status,note,expectedCents:e,paidCents:p})});const j=await r.json() as {lead:Lead;error?:string};if(!r.ok)throw Error(j.error);setLead(j.lead);setMessage("Změny uložené.");saved();const h=await fetch("/api/admin/leads/"+encodeURIComponent(id),{cache:"no-store"});if(h.ok)setEvents(((await h.json()) as {events:Event[]}).events);}catch(e){setError(e instanceof Error?e.message:"Uložení se nezdařilo.");}finally{setBusy(false);}
+ }
+ async function remove(){
+  if(!lead)return;setBusy(true);setError("");try{const r=await fetch("/api/admin/leads/"+encodeURIComponent(id),{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({version:lead.version})});const j=await r.json() as {error?:string};if(!r.ok)throw Error(j.error);saved();close();}catch(e){setError(e instanceof Error?e.message:"Smazání se nezdařilo.");setBusy(false);}
+ }
+ async function copy(){
+  if(!lead)return;const d=lead.data;
+  const text=["LOVKY – poptávka "+lead.id,lead.is_test?"MODELOVÁ POPTÁVKA":"",d.company+" · IČO "+d.ico,"Účel: "+d.purpose,"Částka: "+formatMoney(d.amount),"Nemovitost: "+d.property,"Odhad hodnoty: "+(d.propertyValue?formatMoney(d.propertyValue):"neuveden"),"Zástavní právo: "+d.lien,"Termín: "+d.urgency,"Kontakt: "+d.name+" · "+d.phone+(d.email?" · "+d.email:""),"Souhlas: "+date(lead.consent_at),"Příjemce: "+lead.recipient.partner].filter(Boolean).join("\n");
+  try{await navigator.clipboard.writeText(text);setMessage("Přehled zkopírovaný.");}catch{setError("Kopírování se nepodařilo. Použijte export CSV z přehledu.");}
+ }
+ return <dialog ref={dialog} className="lead-dialog" aria-labelledby="detail-title" onCancel={e=>{e.preventDefault();if(!busy)close();}} onClick={e=>{if(e.target===e.currentTarget&&!busy)close();}}><div className="detail-inner">
+  <div className="detail-top"><span className="eyebrow dark-eyebrow">DETAIL POPTÁVKY</span><button className="icon-button" aria-label="Zavřít detail" disabled={busy} onClick={close}><X size={21}/></button></div>
+  <h2 id="detail-title">{lead?.data.company||"Načítám…"}</h2>
+  {lead&&<><p className="detail-id">{lead.id}</p>{!!lead.is_test&&<div className="form-pilot">Modelová poptávka · žádný skutečný kontakt</div>}<div className="detail-amount">{formatMoney(lead.data.amount)}</div><p className="detail-purpose">{lead.data.purpose}</p>
+   <dl className="detail-data">{[["IČO",lead.data.ico],["Kontaktní osoba",lead.data.name],["Telefon",lead.data.phone],["E-mail",lead.data.email||"Neuveden"],["Zajištění",lead.data.property],["Odhad hodnoty",lead.data.propertyValue?formatMoney(lead.data.propertyValue):"Neuveden"],["Zástavní právo",lead.data.lien],["Termín",lead.data.urgency],["Přijato",date(lead.created_at)],["Příjemce",lead.recipient.partner]].map(([k,v])=><div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
+   <button className="button button-outline full-width" onClick={copy}><Copy size={16}/> Kopírovat přehled pro partnera</button><p className="fineprint">Předání partnerovi evidujte změnou stavu až po skutečném předání.</p>
+   <div className="detail-edit fields"><h3>Další postup</h3><label>Stav<select value={status} onChange={e=>setStatus(e.target.value)}>{statuses.map(s=><option value={s} key={s}>{statusLabels[s]}</option>)}</select></label><label>Interní poznámka<textarea rows={3} maxLength={2000} value={note} onChange={e=>setNote(e.target.value)} placeholder="Co se řeší a jaký je další krok"/></label><div className="field-row"><label>Očekávaná provize v Kč<input inputMode="decimal" value={expected} onChange={e=>setExpected(e.target.value)}/></label><label>Zaplacená provize v Kč<input inputMode="decimal" value={paid} onChange={e=>setPaid(e.target.value)}/></label></div><button className="button" onClick={save} disabled={busy}>{busy?"Ukládám…":"Uložit změny"}<Check size={17}/></button></div>
+   <div className="event-history"><h3>Historie</h3>{events.map(e=>{const d=JSON.parse(e.detail);return <div key={e.id}><span className="history-dot"/><p><b>{e.action==="created"?"Poptávka přijata":"Změna záznamu"}</b>{e.action!=="created"&&<small>{statusLabels[d.status]||""}{d.noteChanged?" · upravena poznámka":""}</small>}<time>{date(e.created_at)}</time></p></div>;})}<p className="fineprint">Souhlas zaznamenán {date(lead.consent_at)} · informace verze {lead.privacy_version}</p></div>
+   {!deleting?<button className="text-button danger" disabled={busy} onClick={()=>setDeleting(true)}>Smazat poptávku</button>:<div className="delete-confirm"><b>Smazat poptávku včetně historie?</b><p>Tato akce je nevratná.</p><div><button className="button button-danger" disabled={busy} onClick={remove}>Ano, smazat</button><button className="text-button" disabled={busy} onClick={()=>setDeleting(false)}>Ponechat</button></div></div>}
+  </>}
+  {error&&<p className="error-box" role="alert">{error}</p>}{message&&<p className="success-box" role="status">{message}</p>}
+ </div></dialog>;
+}
